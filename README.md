@@ -49,7 +49,7 @@ For Claude Desktop, use absolute paths: `"command": "/absolute/path/to/node"` wi
 
 Your ID, phone number and the code are only ever typed on that page and sent to the hospital. The assistant only ever sees the link.
 
-beWell protects its sign-in with an invisible reCAPTCHA that only its own page can run, so the server does each step inside a Chromium browser open on the hospital's sign-in page. When reCAPTCHA wants a picture puzzle, the sign-in page shows it, and you solve it there by clicking the picture; nothing is solved automatically.
+beWell protects its sign-in with an invisible reCAPTCHA that only its own page can run, so the server does each step inside a Chromium browser open on the hospital's sign-in page. When reCAPTCHA wants a picture puzzle, the sign-in page shows it, and you solve it there by clicking the picture; nothing is solved automatically. The browser keeps its profile (Google's cookies included) in `ICHILOV_CONFIG_DIR/browser`, so reCAPTCHA asks fewer puzzles after the first sign-in, and the longer the session length you pick, the less often you sign in at all.
 
 beWell has no refresh token: its session ends after about 20 minutes without activity. While the MCP server runs it checks in with beWell every 5 minutes, saves the session's cookies, and signs out at the end of the length you picked. A restart picks the saved session back up if it hasn't timed out in between.
 
@@ -68,7 +68,7 @@ beWell has no prescriptions.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ICHILOV_CONFIG_DIR` | `~/.config/ichilov-mcp` | Where the session is saved |
+| `ICHILOV_CONFIG_DIR` | `~/.config/ichilov-mcp` | Where the session and the sign-in browser's profile are saved |
 | `ICHILOV_LOGIN_HOST` | `127.0.0.1` | Address the sign-in page listens on |
 | `ICHILOV_LOGIN_PORT` | `8767` | Its port; a free one is used if another copy holds it |
 | `ICHILOV_LOGIN_URL` | `http://localhost:<port>/` | The link handed out, when the page sits behind a reverse proxy. When set, the page starts with the server. |
