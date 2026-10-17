@@ -13,7 +13,10 @@
  * only ever sent to the hospital.
  */
 import { API_BASE_URL, SITE_ORIGIN } from "./api.js";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { Cookie } from "./cookies.js";
+import { configDir } from "./store.js";
 
 export const LOGIN_PAGE_URL = `${SITE_ORIGIN}/bewell/personalzonelogin`;
 export const RECAPTCHA_SITE_KEY = "6Ld4kfIpAAAAAP6kPFucTjFIHGT8AskbGeXGsBwq";
@@ -141,6 +144,12 @@ const READY_SCRIPT = `typeof window.grecaptcha === "object" && typeof window.gre
 /**
  * Chromium on the beWell sign-in page. Headless unless ICHILOV_HEADLESS=false;
  * ICHILOV_CHROMIUM_PATH picks another Chromium than Playwright's own.
+ *
+ * reCAPTCHA asks more puzzles of a browser that looks automated or new, so
+ * this runs full Chromium in its new headless mode (not the bare headless
+ * shell), without the automation flag or "HeadlessChrome" in its user agent,
+ * and keeps one profile in ICHILOV_CONFIG_DIR/browser, so Google's cookies
+ * from one sign-in carry over to the next.
  */
 export async function openChromium(): Promise<LoginBrowser> {
   let chromium: typeof import("playwright").chromium;
@@ -151,17 +160,33 @@ export async function openChromium(): Promise<LoginBrowser> {
   }
   const headless = process.env.ICHILOV_HEADLESS !== "false";
   const executablePath = process.env.ICHILOV_CHROMIUM_PATH || undefined;
-  const browser = await chromium.launch({ headless, ...(executablePath ? { executablePath } : {}) }).catch((err: unknown) => {
+  const options = {
+    headless,
+    ...(executablePath ? { executablePath } : { channel: "chromium" }),
+    args: ["--disable-blink-features=AutomationControlled"],
+    locale: "he-IL",
+    timezoneId: "Asia/Jerusalem",
+    viewport: { width: 1280, height: 800 },
+    // The page forbids eval, which Playwright waits on the page with.
+    bypassCSP: true,
+  };
+  const profile = join(configDir(), "browser");
+  // One sign-in runs at a time, so a lock left in the profile is from a browser that died with its container.
+  for (const lock of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) await rm(join(profile, lock), { force: true });
+  const context = await chromium.launchPersistentContext(profile, options).catch((err: unknown) => {
     throw new BewellLoginError(`Could not start Chromium (${err instanceof Error ? err.message : String(err)}). Run \`npx playwright install chromium\`.`);
   });
+  const browser = { close: () => context.close() };
   try {
-    const context = await browser.newContext({
-      locale: "he-IL",
-      timezoneId: "Asia/Jerusalem",
-      // The page forbids eval, which Playwright waits on the page with.
-      bypassCSP: true,
-    });
-    const page = await context.newPage();
+    // New headless mode still says "HeadlessChrome" in its user agent, which Google reads as a bot.
+    const first = context.pages()[0] ?? (await context.newPage());
+    const userAgent = String(await first.evaluate("navigator.userAgent"));
+    if (userAgent.includes("HeadlessChrome")) {
+      const plain = userAgent.replace("HeadlessChrome", "Chrome");
+      await context.setExtraHTTPHeaders({ "user-agent": plain });
+      await context.addInitScript(`Object.defineProperty(Navigator.prototype, "userAgent", { get: () => ${JSON.stringify(plain)} });`);
+    }
+    const page = first;
     await page.goto(LOGIN_PAGE_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
     // The page loads reCAPTCHA itself; load it if it has not by the time the page settles.
     if (!(await page.waitForFunction(READY_SCRIPT, undefined, { timeout: 15_000 }).then(() => true, () => false))) {
