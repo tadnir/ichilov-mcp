@@ -1,0 +1,32 @@
+{
+  "name": "ichilov-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read your own Tel Aviv Sourasky Medical Center (Ichilov) beWell records from an AI assistant over MCP: lab, imaging and visit documents as PDFs, and appointments.",
+  "keywords": ["ichilov", "tasmc", "bewell", "mcp", "mcp-server", "model-context-protocol", "medical-records"],
+  "license": "MIT",
+  "author": "Michael Tadnir (https://github.com/tadnir)",
+  "homepage": "https://github.com/tadnir/ichilov-mcp#readme",
+  "bugs": { "url": "https://github.com/tadnir/ichilov-mcp/issues" },
+  "repository": { "type": "git", "url": "git+https://github.com/tadnir/ichilov-mcp.git" },
+  "engines": { "node": ">=20.0.0" },
+  "type": "module",
+  "bin": { "ichilov-mcp": "src/main.ts" },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "playwright": "^1.55.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
