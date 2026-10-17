@@ -34,6 +34,10 @@ describe("SessionKeeper", () => {
     await keeper.tick();
     expect(keeper.check).toHaveBeenCalledOnce();
     expect(keeper.status().lastCheckedAt).toBe(new Date(now).toISOString());
+    expect(keeper.status().lastRenewedAt).toBeUndefined();
+    (await keeper.jar()).update(new Response(null, { headers: { "set-cookie": "session=s2; Max-Age=1440" } }), now);
+    await keeper.cookiesChanged();
+    expect(keeper.status()).toMatchObject({ lastRenewedAt: new Date(now).toISOString(), cookies: [{ name: "session", expiresAt: new Date(now + 1_440_000).toISOString() }] });
   });
 
   test("a refused check ends the session; a network error doesn't", async () => {
@@ -49,7 +53,9 @@ describe("SessionKeeper", () => {
       throw new SessionRefused();
     };
     await keeper.tick();
-    expect(keeper.status()).toMatchObject({ state: "expired", lastError: "beWell ended the session." });
+    // The ended session's cookie names stay in the status, without values, to tell why it ended.
+    expect(keeper.status()).toMatchObject({ state: "expired", lastError: "beWell ended the session.", cookies: [{ name: "session" }] });
+    expect(JSON.stringify(keeper.status())).not.toContain("s1");
     expect(store.saved).toBeUndefined();
   });
 
