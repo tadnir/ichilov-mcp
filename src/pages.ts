@@ -4,7 +4,7 @@ import { LENGTH_ENDED } from "./keeper.js";
 export const PAGE_HEADERS: Record<string, string> = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
-  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' blob:; script-src 'self'; connect-src 'self'; form-action 'self'",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
 };
@@ -30,7 +30,9 @@ button{padding:.6rem 1.1rem;font:inherit;border:0;border-radius:.4rem;background
 button.secondary{background:#8884;color:inherit}
 .note{font-size:.85rem;opacity:.7}
 .err{color:#b00020}
-input.puzzle{display:block;border:1px solid #8884;border-radius:.4rem}`;
+.puzzle{position:relative;display:inline-block;max-width:100%;line-height:0;margin:0 0 1rem}
+.puzzle img,input.puzzle{display:block;max-width:100%;height:auto;border:1px solid #8884;border-radius:.4rem;cursor:pointer;touch-action:manipulation}
+.puzzle .dot{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:#0b6e4fcc;pointer-events:none;transition:opacity .6s}`;
 
 function layout(title: string, body: string): string {
   return `<!DOCTYPE html>
@@ -66,7 +68,7 @@ function idForm(csrf: string, label: string, secondary: boolean): string {
   return `<form method="post" action="start"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"/>
 <label>ID number (תעודת זהות) or passport<input type="text" name="id" autocomplete="off" pattern="[0-9A-Za-z]{1,20}" required/></label>
 <label class="inline"><input type="checkbox" name="passport" value="1"/> It's a passport number</label>
-<label>Mobile number on file at the hospital<input type="text" name="phone" inputmode="tel" autocomplete="off" pattern="[0-9+ -]{9,16}" required/></label>
+<label>Mobile number on file at the hospital<input type="text" name="phone" inputmode="tel" autocomplete="off" pattern="[0-9+ \\-]{9,16}" required/></label>
 <label>Stay signed in for<select name="length">${options}</select></label>
 <button type="submit"${secondary ? ' class="secondary"' : ""}>${escapeHtml(label)}</button></form>`;
 }
@@ -129,18 +131,75 @@ export function workingPage(csrf: string, what: string): string {
   );
 }
 
-/** reCAPTCHA's picture puzzle, from the hospital's page: a click on the picture is a click there. */
+/**
+ * reCAPTCHA's picture puzzle, from the hospital's page: a click on the picture
+ * is a click there. puzzle.js keeps the picture live and sends each click
+ * without reloading the page; without scripts, the picture is a form button.
+ */
 export function puzzlePage(csrf: string): string {
   return layout(
     "Solve the puzzle",
     `<h1>Solve reCAPTCHA's puzzle</h1>
-<p>The hospital's sign-in page asks for this. Click the picture as you would there, one click at a time, including its button (verify or skip). The picture updates after each click.</p>
-<form method="post" action="puzzle"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"/>
-<input type="image" name="p" src="puzzle.png?t=${Date.now()}" alt="reCAPTCHA puzzle" class="puzzle"/></form>
-<p><a href="./">Reload the picture</a></p>
-<form method="post" action="cancel"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"/><button type="submit" class="secondary">Start over</button></form>`,
+<p>The hospital's sign-in page asks for this. Tap the picture as you would there, including its button (verify or skip). It updates by itself as you go.</p>
+<form method="post" action="puzzle" id="puzzle-form" data-csrf="${escapeHtml(csrf)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"/>
+<div class="puzzle"><input type="image" name="p" src="puzzle.png?t=${Date.now()}" alt="reCAPTCHA puzzle" class="puzzle" id="puzzle"/></div></form>
+<form method="post" action="cancel"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}"/><button type="submit" class="secondary">Start over</button></form>
+<script src="puzzle.js"></script>`,
   );
 }
+
+/**
+ * Served as puzzle.js. Swaps the picture for a fresh one about three times a
+ * second, sends each tap at the picture's own scale (the page may show it
+ * smaller), and reloads once the puzzle is gone for good, which moves on to
+ * the next step.
+ */
+export const PUZZLE_SCRIPT = `(function () {
+  var form = document.getElementById("puzzle-form");
+  var input = document.getElementById("puzzle");
+  if (!form || !input || !window.fetch) return;
+  var csrf = form.getAttribute("data-csrf");
+  var img = new Image();
+  img.alt = input.alt;
+  img.src = input.src;
+  var box = input.parentNode;
+  box.replaceChild(img, input);
+  var missing = 0, busy = false;
+  function refresh() {
+    if (busy) return;
+    busy = true;
+    fetch("puzzle.png?t=" + Date.now(), { cache: "no-store" }).then(function (res) {
+      if (res.status === 404) {
+        // Gone between two challenges, or solved: reload once it stays gone.
+        if (++missing >= 4) location.reload();
+        return;
+      }
+      missing = 0;
+      return res.blob().then(function (blob) {
+        var next = URL.createObjectURL(blob), old = img.src;
+        img.onload = function () { if (old.indexOf("blob:") === 0) URL.revokeObjectURL(old); };
+        img.src = next;
+      });
+    }).catch(function () {}).then(function () { busy = false; });
+  }
+  img.addEventListener("click", function (e) {
+    var rect = img.getBoundingClientRect();
+    var scale = img.naturalWidth ? img.naturalWidth / rect.width : 1;
+    var x = Math.round((e.clientX - rect.left) * scale), y = Math.round((e.clientY - rect.top) * scale);
+    var dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.left = (e.clientX - rect.left) + "px";
+    dot.style.top = (e.clientY - rect.top) + "px";
+    box.appendChild(dot);
+    setTimeout(function () { dot.style.opacity = "0"; }, 300);
+    setTimeout(function () { dot.remove(); }, 1000);
+    var body = new URLSearchParams({ csrf: csrf, "p.x": String(x), "p.y": String(y) });
+    fetch("puzzle", { method: "POST", body: body, headers: { "x-puzzle-live": "1" } })
+      .then(function () { setTimeout(refresh, 250); }, function () {});
+  });
+  setInterval(refresh, 350);
+})();
+`;
 
 export function messagePage(title: string, message: string): string {
   return layout(title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>`);

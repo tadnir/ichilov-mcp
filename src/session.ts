@@ -19,7 +19,7 @@ import { randomBytes } from "node:crypto";
 import { BewellApi, Unauthorized, type Fetch } from "./api.js";
 import { SessionKeeper, SessionRefused, SignInRequired, type KeeperStatus } from "./keeper.js";
 import { BewellLoginError, openChromium, sendCode, verifyCode, type Identity, type LoginBrowser, type OpenBrowser } from "./login.js";
-import { DEFAULT_SESSION_LENGTH, PAGE_HEADERS, SESSION_LENGTHS, codePage, idPage, messagePage, puzzlePage, statusPage, workingPage } from "./pages.js";
+import { DEFAULT_SESSION_LENGTH, PAGE_HEADERS, SESSION_LENGTHS, codePage, idPage, messagePage, PUZZLE_SCRIPT, puzzlePage, statusPage, workingPage } from "./pages.js";
 import { fileStore, type SessionStore } from "./store.js";
 
 const log = (line: string): void => console.error(`[ichilov-mcp] ${line}`);
@@ -238,6 +238,10 @@ export class SessionManager {
       else page(res, 200, status.state === "signed_in" && !notice ? statusPage(status, this.#csrf) : idPage(status, this.#csrf, notice));
       return;
     }
+    if (req.method === "GET" && path === "/puzzle.js") {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" }).end(PUZZLE_SCRIPT);
+      return;
+    }
     if (req.method === "GET" && path === "/puzzle.png") {
       const png = await this.#livePending()?.browser.puzzle().catch(() => undefined);
       if (!png) res.writeHead(404, { "cache-control": "no-store" }).end();
@@ -293,10 +297,16 @@ export class SessionManager {
       const pending = this.#livePending();
       const x = Number(form.get("p.x"));
       const y = Number(form.get("p.y"));
+      const live = req.headers["x-puzzle-live"] === "1";
       if (pending && Number.isFinite(x) && Number.isFinite(y)) {
         await pending.browser.click(x, y);
         // The puzzle answers the click with a new picture, or with the token.
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1_500, this.#stepWaitMs)).unref());
+        // The live page fetches the picture itself.
+        if (!live) await new Promise((resolve) => setTimeout(resolve, Math.min(1_500, this.#stepWaitMs)).unref());
+      }
+      if (live) {
+        res.writeHead(pending ? 204 : 410, { "cache-control": "no-store" }).end();
+        return;
       }
     } else {
       const pending = this.#livePending();
