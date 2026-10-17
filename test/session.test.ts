@@ -24,9 +24,9 @@ function world() {
   });
 }
 
-function http(port: number, method: string, path: string, body?: string, host = `127.0.0.1:${port}`) {
+function http(port: number, method: string, path: string, body?: string, host = `127.0.0.1:${port}`, extra: Record<string, string> = {}) {
   return new Promise<{ status: number; text: string }>((resolve, reject) => {
-    const req = request({ host: "127.0.0.1", port, method, path, headers: { host, "content-type": "application/x-www-form-urlencoded" } }, (res) => {
+    const req = request({ host: "127.0.0.1", port, method, path, headers: { host, "content-type": "application/x-www-form-urlencoded", ...extra } }, (res) => {
       let t = "";
       res.on("data", (c) => (t += c));
       res.on("end", () => resolve({ status: res.statusCode!, text: t }));
@@ -97,9 +97,12 @@ describe("sign-in page", () => {
     expect((await http(port, "POST", "/start", `csrf=${csrf}&id=12345678&phone=0500000000&length=1d`)).status).toBe(303);
     const puzzle = await http(port, "GET", "/");
     expect(puzzle.text).toContain("Solve reCAPTCHA");
+    expect(puzzle.text).toContain('src="puzzle.js"');
+    expect((await http(port, "GET", "/puzzle.js")).text).toContain("x-puzzle-live");
     expect((await http(port, "GET", "/puzzle.png")).status).toBe(200);
+    expect((await http(port, "POST", "/puzzle", `csrf=${csrf}&p.x=10&p.y=20`, undefined, { "x-puzzle-live": "1" })).status).toBe(204);
     expect((await http(port, "POST", "/puzzle", `csrf=${csrf}&p.x=120&p.y=45`)).status).toBe(303);
-    expect(browsers[0]!.clicks).toEqual([[120, 45]]);
+    expect(browsers[0]!.clicks).toEqual([[10, 20], [120, 45]]);
     expect((await http(port, "GET", "/")).text).toContain("Enter the code");
     expect((await http(port, "POST", "/code", `csrf=${csrf}&code=123456`)).status).toBe(303);
     expect(session.keeper.status().state).toBe("signed_in");
