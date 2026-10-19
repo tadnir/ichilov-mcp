@@ -21,7 +21,7 @@ describe("SessionKeeper", () => {
     const keeper = new SessionKeeper({ store, now: () => now, log: quiet });
     await keeper.signedIn(cookies, 24 * HOUR);
     expect(store.saved).toMatchObject({ cookies, endsAt: now + 24 * HOUR });
-    expect((await keeper.jar()).header(now)).toBe("session=s1");
+    expect((await keeper.jar()).header()).toBe("session=s1");
     expect(keeper.status()).toMatchObject({ state: "signed_in", endsAt: new Date(now + 24 * HOUR).toISOString() });
   });
 

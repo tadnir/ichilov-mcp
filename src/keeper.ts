@@ -47,7 +47,7 @@ export interface KeeperOptions {
   log?: (line: string) => void;
 }
 
-export const DEFAULT_TICK_MS = 5 * 60_000;
+export const DEFAULT_TICK_MS = 2 * 60_000;
 export const LENGTH_ENDED = "The session length chosen at sign-in ran out.";
 
 export class SignInRequired extends Error {
@@ -79,7 +79,7 @@ export class SessionKeeper {
   }
 
   status(): KeeperStatus {
-    const cookies = this.#jar ? cookieSummary(this.#jar.list(this.#now())) : this.#status.cookies;
+    const cookies = this.#jar ? cookieSummary(this.#jar.list()) : this.#status.cookies;
     return { ...this.#status, ...(cookies ? { cookies } : {}) };
   }
 
@@ -156,7 +156,7 @@ export class SessionKeeper {
   async cookiesChanged(): Promise<void> {
     await this.#serial(async () => {
       if (!this.#session || !this.#jar) return;
-      this.#session = { ...this.#session, cookies: this.#jar.list(this.#now()) };
+      this.#session = { ...this.#session, cookies: this.#jar.list() };
       await this.#store.save(this.#session);
       this.#status = { ...this.#status, lastRenewedAt: new Date(this.#now()).toISOString() };
     });
@@ -181,7 +181,7 @@ export class SessionKeeper {
     if (!this.#session) return;
     const { signedInAt } = this.#session;
     const { lastCheckedAt, lastRenewedAt } = this.#status;
-    const cookies = this.#jar ? cookieSummary(this.#jar.list(this.#now())) : undefined;
+    const cookies = this.#jar ? cookieSummary(this.#jar.list()) : undefined;
     this.#session = undefined;
     this.#jar = undefined;
     await this.#store.clear();
