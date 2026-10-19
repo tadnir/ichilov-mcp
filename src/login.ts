@@ -141,6 +141,10 @@ const POST_SCRIPT = `function (url, body) {
 
 const READY_SCRIPT = `typeof window.grecaptcha === "object" && typeof window.grecaptcha.render === "function"`;
 
+/** The sign-in browser that has the profile, and the launch in progress. */
+let open: { close(): Promise<void> } | undefined;
+let launching: Promise<unknown> = Promise.resolve();
+
 /**
  * Chromium on the beWell sign-in page. Headless unless ICHILOV_HEADLESS=false;
  * ICHILOV_CHROMIUM_PATH picks another Chromium than Playwright's own.
@@ -171,12 +175,26 @@ export async function openChromium(): Promise<LoginBrowser> {
     bypassCSP: true,
   };
   const profile = join(configDir(), "browser");
-  // One sign-in runs at a time, so a lock left in the profile is from a browser that died with its container.
-  for (const lock of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) await rm(join(profile, lock), { force: true });
-  const context = await chromium.launchPersistentContext(profile, options).catch((err: unknown) => {
+  // The profile takes one browser at a time. A newer sign-in replaces an older
+  // one still open (say, the form sent twice), as the sign-in page does; once
+  // none is open, a lock left in the profile is from a browser that died with
+  // its container.
+  const launch = launching.then(async () => {
+    await open?.close().catch(() => undefined);
+    for (const lock of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) await rm(join(profile, lock), { force: true });
+    return chromium.launchPersistentContext(profile, options);
+  });
+  launching = launch.catch(() => undefined);
+  const context = await launch.catch((err: unknown) => {
     throw new BewellLoginError(`Could not start Chromium (${err instanceof Error ? err.message : String(err)}). Run \`npx playwright install chromium\`.`);
   });
-  const browser = { close: () => context.close() };
+  open = context;
+  const browser = {
+    close: async () => {
+      if (open === context) open = undefined;
+      await context.close();
+    },
+  };
   try {
     // New headless mode still says "HeadlessChrome" in its user agent, which Google reads as a bot.
     const first = context.pages()[0] ?? (await context.newPage());
