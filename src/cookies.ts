@@ -18,15 +18,20 @@ export class CookieJar {
     for (const cookie of cookies) this.#cookies.set(cookie.name, cookie);
   }
 
-  /** The Cookie header, without the ones that have expired. */
-  header(now = Date.now()): string {
-    return this.list(now)
+  /**
+   * The Cookie header, with every cookie held, also past its Expires: beWell
+   * sets its sign-in cookie to expire 20 minutes after sign-in and never moves
+   * that date, so whether the session still holds is beWell's answer, not the
+   * date's. A cookie beWell deletes (Set-Cookie with a past date) is dropped.
+   */
+  header(): string {
+    return this.list()
       .map((c) => `${c.name}=${c.value}`)
       .join("; ");
   }
 
-  list(now = Date.now()): Cookie[] {
-    return [...this.#cookies.values()].filter((c) => c.expires === undefined || c.expires * 1000 > now);
+  list(): Cookie[] {
+    return [...this.#cookies.values()];
   }
 
   get size(): number {

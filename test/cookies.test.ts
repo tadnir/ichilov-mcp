@@ -14,12 +14,12 @@ describe("CookieJar", () => {
     const jar = new CookieJar([{ name: "a", value: "1" }, { name: "b", value: "2" }]);
     const res = new Response("", { headers: [["set-cookie", "a=3; Path=/"], ["set-cookie", "b=; Max-Age=0"]] });
     expect(jar.update(res, now)).toBe(true);
-    expect(jar.header(now)).toBe("a=3");
+    expect(jar.header()).toBe("a=3");
     expect(jar.update(new Response(""), now)).toBe(false);
   });
 
-  test("leaves expired cookies out of the header", () => {
+  test("keeps sending a cookie past its Expires; beWell decides whether it still holds", () => {
     const jar = new CookieJar([{ name: "old", value: "1", expires: now / 1000 - 1 }, { name: "new", value: "2" }]);
-    expect(jar.header(now)).toBe("new=2");
+    expect(jar.header()).toBe("old=1; new=2");
   });
 });
