@@ -14,7 +14,9 @@ export const SITE_ORIGIN = "https://www.tasmc.org.il";
 export const API_BASE_URL = process.env.ICHILOV_API_BASE_URL || "https://api.tasmc.org.il/api/";
 
 const HEADERS: Record<string, string> = {
-  accept: "application/json, text/plain, */*",
+  // The headers the beWell site's own fetch sends.
+  accept: "application/json",
+  "content-type": "application/json",
   "accept-language": "he,en;q=0.9",
   origin: SITE_ORIGIN,
   referer: `${SITE_ORIGIN}/`,

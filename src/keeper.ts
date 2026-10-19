@@ -21,6 +21,14 @@ export interface KeeperStatus {
   lastCheckedAt?: string;
   endedAt?: string;
   lastError?: string;
+  /** When beWell last set a cookie (a sign it extended the session); never values. */
+  lastRenewedAt?: string;
+  /** The session's cookie names and when each expires, never their values. */
+  cookies?: { name: string; expiresAt?: string }[];
+}
+
+function cookieSummary(cookies: Cookie[]): KeeperStatus["cookies"] {
+  return cookies.map((c) => ({ name: c.name, ...(c.expires ? { expiresAt: new Date(c.expires * 1000).toISOString() } : {}) }));
 }
 
 /** Thrown by the check when beWell refused the cookies. */
@@ -71,7 +79,8 @@ export class SessionKeeper {
   }
 
   status(): KeeperStatus {
-    return { ...this.#status };
+    const cookies = this.#jar ? cookieSummary(this.#jar.list(this.#now())) : this.#status.cookies;
+    return { ...this.#status, ...(cookies ? { cookies } : {}) };
   }
 
   async start(): Promise<void> {
@@ -105,7 +114,7 @@ export class SessionKeeper {
       if (!saved) {
         this.#session = undefined;
         this.#jar = undefined;
-        this.#status = { state: this.#status.state === "expired" ? "expired" : "signed_out" };
+        this.#status = this.#status.state === "expired" ? this.#status : { state: "signed_out" };
         return;
       }
       if (saved.signedInAt !== this.#session?.signedInAt) this.#jar = new CookieJar(saved.cookies);
@@ -149,6 +158,7 @@ export class SessionKeeper {
       if (!this.#session || !this.#jar) return;
       this.#session = { ...this.#session, cookies: this.#jar.list(this.#now()) };
       await this.#store.save(this.#session);
+      this.#status = { ...this.#status, lastRenewedAt: new Date(this.#now()).toISOString() };
     });
   }
 
@@ -169,11 +179,22 @@ export class SessionKeeper {
 
   async #drop(reason: string): Promise<void> {
     if (!this.#session) return;
-    const signedInAt = this.#session.signedInAt;
+    const { signedInAt } = this.#session;
+    const { lastCheckedAt, lastRenewedAt } = this.#status;
+    const cookies = this.#jar ? cookieSummary(this.#jar.list(this.#now())) : undefined;
     this.#session = undefined;
     this.#jar = undefined;
     await this.#store.clear();
-    this.#status = { state: "expired", signedInAt, endedAt: new Date(this.#now()).toISOString(), lastError: reason };
+    // What the session looked like when it ended, to tell why it did.
+    this.#status = {
+      state: "expired",
+      signedInAt,
+      endedAt: new Date(this.#now()).toISOString(),
+      lastError: reason,
+      ...(lastCheckedAt ? { lastCheckedAt } : {}),
+      ...(lastRenewedAt ? { lastRenewedAt } : {}),
+      ...(cookies ? { cookies } : {}),
+    };
     this.#log(reason === LENGTH_ENDED ? "the chosen session length ran out; signed out" : `beWell ended the session: ${reason}`);
   }
 
