@@ -59,7 +59,7 @@ describe("SessionKeeper", () => {
     expect(store.saved).toBeUndefined();
   });
 
-  test("the chosen length ends the session without asking beWell", async () => {
+  test("the time limit ends the session without asking beWell", async () => {
     let now = 1_000 * HOUR;
     const store = memoryStore();
     const keeper = new SessionKeeper({ store, now: () => now, log: quiet });

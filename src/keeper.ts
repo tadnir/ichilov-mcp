@@ -2,14 +2,13 @@ import { CookieJar, type Cookie } from "./cookies.js";
 import type { SavedSession, SessionStore } from "./store.js";
 
 /**
- * Keeps one beWell sign-in usable for as long as the person chose.
+ * Keeps one beWell sign-in for as long as beWell allows.
  *
- * beWell has no refresh token: its cookie session ends after about 20 minutes
- * without a call. The keeper calls beWell's own session check every few
- * minutes, which counts as activity, saves any cookies beWell sets so a
- * restart picks them up, and drops the session at the end of the length
- * chosen at sign-in. When beWell refuses the cookies, the session is gone and
- * a person has to sign in again.
+ * beWell has no refresh token, and ends a sign-in about 20 minutes after it
+ * starts whatever the activity. The keeper checks the session every few
+ * minutes, saves any cookies beWell sets so a restart picks them up, and drops
+ * the session once beWell refuses it, or at the latest by the limit given at
+ * sign-in. Then a person has to sign in again.
  */
 
 export type KeeperState = "signed_out" | "signed_in" | "expired";
@@ -48,7 +47,7 @@ export interface KeeperOptions {
 }
 
 export const DEFAULT_TICK_MS = 2 * 60_000;
-export const LENGTH_ENDED = "The session length chosen at sign-in ran out.";
+export const LENGTH_ENDED = "The session reached its time limit.";
 
 export class SignInRequired extends Error {
   constructor(message: string) {
@@ -195,7 +194,7 @@ export class SessionKeeper {
       ...(lastRenewedAt ? { lastRenewedAt } : {}),
       ...(cookies ? { cookies } : {}),
     };
-    this.#log(reason === LENGTH_ENDED ? "the chosen session length ran out; signed out" : `beWell ended the session: ${reason}`);
+    this.#log(reason === LENGTH_ENDED ? "the session reached its time limit; signed out" : `beWell ended the session: ${reason}`);
   }
 
   #fromSession(session: SavedSession): KeeperStatus {

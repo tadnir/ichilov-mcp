@@ -67,7 +67,7 @@ describe("sign-in page", () => {
     expect(first.text).toContain("Send code");
     const csrf = csrfOf(first.text);
 
-    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=012345678&phone=050-000-0000&length=1d`)).status).toBe(303);
+    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=012345678&phone=050-000-0000`)).status).toBe(303);
     const browser = browsers[0]!;
     expect(browser.posts[0]).toEqual({
       url: "https://api.tasmc.org.il/api/LoginController/SendOTP",
@@ -82,11 +82,11 @@ describe("sign-in page", () => {
     expect(browser.closed).toBe(true);
     expect(session.keeper.status().state).toBe("signed_in");
 
-    // Signing in again, for a new length, keeps the session until it succeeds.
+    // Signing in again keeps the session until it succeeds.
     const status = (await http(port, "GET", "/")).text;
     expect(status).toContain("Signed in to beWell");
     expect(status).toContain("Sign in again");
-    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=AB123&passport=1&phone=0500000000&length=30d`)).status).toBe(303);
+    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=AB123&passport=1&phone=0500000000`)).status).toBe(303);
     expect(browsers[1]!.posts[0]!.body).toMatchObject({ ID: "AB123", authType: "2" });
     expect(session.keeper.status().state).toBe("signed_in");
   });
@@ -94,7 +94,7 @@ describe("sign-in page", () => {
   test("a reCAPTCHA puzzle is shown on the page and clicks on it reach the browser", async () => {
     const { session, browsers, port } = await signedOutSession(true);
     const csrf = csrfOf((await http(port, "GET", "/")).text);
-    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=12345678&phone=0500000000&length=1d`)).status).toBe(303);
+    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=12345678&phone=0500000000`)).status).toBe(303);
     const puzzle = await http(port, "GET", "/");
     expect(puzzle.text).toContain("Solve reCAPTCHA");
     expect(puzzle.text).toContain('src="puzzle.js"');
@@ -113,7 +113,7 @@ describe("sign-in page", () => {
     expect((await http(port, "GET", "/", undefined, "attacker.example")).status).toBe(421);
     expect((await http(port, "POST", "/start", "csrf=nope&id=1&phone=0500000000")).status).toBe(400);
     const csrf = csrfOf((await http(port, "GET", "/")).text);
-    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=12a&phone=0500000000&length=1d`)).status).toBe(400);
+    expect((await http(port, "POST", "/start", `csrf=${csrf}&id=12a&phone=0500000000`)).status).toBe(400);
     expect(browsers).toHaveLength(0);
   });
 });
@@ -165,6 +165,19 @@ describe("tools", () => {
     await session.keeper.tick();
     expect(session.keeper.status()).toMatchObject({ state: "signed_in" });
     expect(session.keeper.status().lastError).toBeUndefined();
+  });
+
+  test("the check ends a session beWell refuses, though its session check still answers OK", async () => {
+    const f = fakeFetch((call) => {
+      if (call.url.endsWith("/LoginController/TimeOutResponseDialog")) return text('"OK"');
+      return text("<html>401</html>", 401);
+    });
+    session = new SessionManager({ store: memoryStore(), fetch: f, port: 0 });
+    await session.start();
+    await session.keeper.signedIn([{ name: "session", value: "s1" }], 3_600_000);
+    await session.keeper.tick();
+    expect(session.keeper.status().state).toBe("expired");
+    expect(f.calls.map((c) => new URL(c.url).pathname)).toEqual(["/api/LoginController/TimeOutResponseDialog", "/api/PrivateArea/GetPatientApointments"]);
   });
 
   test("bad document fields never reach a URL", async () => {
