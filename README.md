@@ -49,9 +49,9 @@ For Claude Desktop, use absolute paths: `"command": "/absolute/path/to/node"` wi
 
 Your ID, phone number and the code are only ever typed on that page and sent to the hospital. The assistant only ever sees the link.
 
-beWell protects its sign-in with an invisible reCAPTCHA that only its own page can run, so the server does each step inside a Chromium browser open on the hospital's sign-in page. When reCAPTCHA wants a picture puzzle, the sign-in page shows it, and you solve it there by clicking the picture; nothing is solved automatically. The browser keeps its profile (Google's cookies included) in `ICHILOV_CONFIG_DIR/browser`, so reCAPTCHA asks fewer puzzles after the first sign-in, and the longer the session length you pick, the less often you sign in at all.
+beWell protects its sign-in with an invisible reCAPTCHA that only its own page can run, so the server does each step inside a Chromium browser open on the hospital's sign-in page. When reCAPTCHA wants a picture puzzle, the sign-in page shows it, and you solve it there by clicking the picture; nothing is solved automatically. The browser keeps its profile (Google's cookies included) in `ICHILOV_CONFIG_DIR/browser`, so reCAPTCHA asks fewer puzzles after the first sign-in.
 
-beWell has no refresh token: its session ends after about 20 minutes without activity. While the MCP server runs it checks in with beWell every 2 minutes (sending the sign-in cookie even past the 20-minute expiry beWell gives it, as beWell, not that date, decides whether the session holds), saves the session's cookies, and signs out at the end of the length you picked. A restart picks the saved session back up if it hasn't timed out in between.
+beWell has no refresh token, and ends a sign-in about 20 minutes after it starts, however active it is: neither its own session check nor data calls extend it. So sign in just before you want your assistant to read your records. While the MCP server runs it checks the session every 2 minutes with a small data call (beWell's session check keeps answering "OK" after the sign-in has ended), saves the session's cookies, and shows the session as ended as soon as beWell refuses it. A restart picks the saved session back up if it hasn't ended in between.
 
 ### Tools
 
@@ -73,6 +73,7 @@ beWell has no prescriptions.
 | `ICHILOV_LOGIN_PORT` | `8767` | Its port; a free one is used if another copy holds it |
 | `ICHILOV_LOGIN_URL` | `http://localhost:<port>/` | The link handed out, when the page sits behind a reverse proxy. When set, the page starts with the server. |
 | `ICHILOV_HEADLESS` | `true` | `false` also shows the sign-in browser's window |
+| `ICHILOV_KEEP_PAGE_OPEN` | | `true` leaves the browser on beWell's signed-in page for 40 minutes after a sign-in, clicking its "stay signed in" button, and logs whether its data calls still work: an experiment on whether the site itself outlasts 20 minutes |
 | `ICHILOV_CHROMIUM_PATH` | Playwright's Chromium | Another Chromium to sign in with |
 
 ## Hosting one long-lived copy

@@ -76,11 +76,15 @@ export class BewellApi {
     this.#fetch = f;
   }
 
-  /** "OK" while the session lives. Each call also counts as activity, which keeps it alive. */
+  /**
+   * Throws once the session is gone. beWell's own session check keeps
+   * answering "OK" after the sign-in has ended, so a small data call decides.
+   */
   async ping(): Promise<void> {
     const res = await this.#request("LoginController/TimeOutResponseDialog", { method: "GET" });
     const text = (await res.text()).replace(/^"|"$/g, "");
     if (text !== "OK") throw new IchilovApiError(`beWell's session check answered ${JSON.stringify(text.slice(0, 40))}.`);
+    await this.#getList("PrivateArea/GetPatientApointments");
   }
 
   async logout(): Promise<void> {

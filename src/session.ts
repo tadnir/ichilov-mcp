@@ -19,7 +19,7 @@ import { randomBytes } from "node:crypto";
 import { BewellApi, Unauthorized, type Fetch } from "./api.js";
 import { SessionKeeper, SessionRefused, SignInRequired, type KeeperStatus } from "./keeper.js";
 import { BewellLoginError, openChromium, sendCode, verifyCode, type Identity, type LoginBrowser, type OpenBrowser } from "./login.js";
-import { DEFAULT_SESSION_LENGTH, PAGE_HEADERS, SESSION_LENGTHS, codePage, idPage, messagePage, PUZZLE_SCRIPT, puzzlePage, statusPage, workingPage } from "./pages.js";
+import { PAGE_HEADERS, SESSION_LIMIT_MS, codePage, idPage, messagePage, PUZZLE_SCRIPT, puzzlePage, statusPage, workingPage } from "./pages.js";
 import { fileStore, type SessionStore } from "./store.js";
 
 const log = (line: string): void => console.error(`[ichilov-mcp] ${line}`);
@@ -267,10 +267,9 @@ export class SessionManager {
       const passport = form.get("passport") === "1";
       const id = (form.get("id") ?? "").trim();
       const phone = (form.get("phone") ?? "").replace(/[\s-]/g, "");
-      const length = SESSION_LENGTHS[form.get("length") ?? DEFAULT_SESSION_LENGTH];
       const idOk = passport ? /^[0-9A-Za-z]{1,20}$/.test(id) : /^\d{1,9}$/.test(id);
-      if (!idOk || !/^\+?\d{9,15}$/.test(phone) || !length) {
-        page(res, 400, idPage(this.keeper.status(), this.#csrf, "Enter your ID (digits only) or passport, your mobile number, and pick a length."));
+      if (!idOk || !/^\+?\d{9,15}$/.test(phone)) {
+        page(res, 400, idPage(this.keeper.status(), this.#csrf, "Enter your ID (digits only) or passport, and your mobile number."));
         return;
       }
       await this.#dropPending();
@@ -282,7 +281,7 @@ export class SessionManager {
         page(res, 200, idPage(this.keeper.status(), this.#csrf, err.message));
         return;
       }
-      const pending: Pending = { browser, identity: { id, phone, authType: passport ? "2" : "1" }, lengthMs: length[1], at: Date.now(), step: "sending" };
+      const pending: Pending = { browser, identity: { id, phone, authType: passport ? "2" : "1" }, lengthMs: SESSION_LIMIT_MS, at: Date.now(), step: "sending" };
       this.#pending = pending;
       await this.#run(
         pending,
@@ -324,7 +323,8 @@ export class SessionManager {
           const cookies = await verifyCode(pending.browser, pending.identity, code);
           if (this.#pending !== pending) return;
           this.#pending = undefined;
-          await pending.browser.close().catch(() => undefined);
+          if (process.env.ICHILOV_KEEP_PAGE_OPEN === "true" && pending.browser.keepOpen) void pending.browser.keepOpen();
+          else await pending.browser.close().catch(() => undefined);
           await this.keeper.signedIn(cookies, pending.lengthMs);
         },
         async (message) => {
