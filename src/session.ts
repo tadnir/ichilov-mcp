@@ -323,7 +323,8 @@ export class SessionManager {
           const cookies = await verifyCode(pending.browser, pending.identity, code);
           if (this.#pending !== pending) return;
           this.#pending = undefined;
-          await pending.browser.close().catch(() => undefined);
+          if (process.env.ICHILOV_KEEP_PAGE_OPEN === "true" && pending.browser.keepOpen) void pending.browser.keepOpen();
+          else await pending.browser.close().catch(() => undefined);
           await this.keeper.signedIn(cookies, pending.lengthMs);
         },
         async (message) => {

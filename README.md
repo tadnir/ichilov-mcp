@@ -73,6 +73,7 @@ beWell has no prescriptions.
 | `ICHILOV_LOGIN_PORT` | `8767` | Its port; a free one is used if another copy holds it |
 | `ICHILOV_LOGIN_URL` | `http://localhost:<port>/` | The link handed out, when the page sits behind a reverse proxy. When set, the page starts with the server. |
 | `ICHILOV_HEADLESS` | `true` | `false` also shows the sign-in browser's window |
+| `ICHILOV_KEEP_PAGE_OPEN` | | `true` leaves the browser on beWell's signed-in page for 40 minutes after a sign-in, clicking its "stay signed in" button, and logs whether its data calls still work: an experiment on whether the site itself outlasts 20 minutes |
 | `ICHILOV_CHROMIUM_PATH` | Playwright's Chromium | Another Chromium to sign in with |
 
 ## Hosting one long-lived copy

@@ -53,6 +53,11 @@ export interface LoginBrowser {
   post(url: string, body: unknown): Promise<{ status: number; text: string }>;
   /** The API's cookies, HttpOnly ones included. */
   cookies(): Promise<Cookie[]>;
+  /**
+   * After a sign-in: leaves the browser on beWell's own signed-in page, as a
+   * person's browser would be, and closes it after a while. See keepPageOpen.
+   */
+  keepOpen?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -139,6 +144,25 @@ const POST_SCRIPT = `function (url, body) {
   }).then(function (res) { return res.text().then(function (text) { return { status: res.status, text: text }; }); });
 }`;
 
+/** What beWell's page keeps from the code's answer, so its signed-in page opens. */
+const SIGNED_IN_SCRIPT = `function (answer) {
+  var keys = ["FirstName", "LastName", "StatusMsg", "TokenCreateDate", "Phone1", "Phone2", "City", "Postal", "BirthDate", "ExtPatientId", "IsTempPwd", "Email", "Address"];
+  var data = JSON.parse(answer);
+  keys.forEach(function (key) { if (data[key]) localStorage.setItem(key, data[key]); });
+}`;
+
+/** A data call from the page, as its own fetches make them; returns the HTTP status. */
+const PROBE_SCRIPT = `function (url) {
+  return fetch(url, { credentials: "include", headers: { accept: "application/json", "content-type": "application/json" } })
+    .then(function (res) { return res.status; }, function () { return 0; });
+}`;
+
+/** beWell's "stay signed in" button in its session popup. */
+const STAY_IN = "\u05dc\u05d4\u05e9\u05d0\u05e8 \u05de\u05d7\u05d5\u05d1\u05e8";
+
+/** How long keepOpen leaves the page open. */
+const KEEP_OPEN_MS = 40 * 60_000;
+
 const READY_SCRIPT = `typeof window.grecaptcha === "object" && typeof window.grecaptcha.render === "function"`;
 
 /** The sign-in browser that has the profile, and the launch in progress. */
@@ -211,6 +235,7 @@ export async function openChromium(): Promise<LoginBrowser> {
       await page.addScriptTag({ url: "https://www.google.com/recaptcha/api.js?render=explicit" });
       await page.waitForFunction(READY_SCRIPT, undefined, { timeout: 30_000 });
     }
+    let signInAnswer = "";
     /** reCAPTCHA's puzzle frame, while it is on screen. */
     const visiblePuzzle = async () => {
       for (const el of await page.$$('iframe[src*="/recaptcha/api2/bframe"]')) {
@@ -242,11 +267,16 @@ export async function openChromium(): Promise<LoginBrowser> {
         await page.mouse.click(box.x + Math.min(Math.max(x, 0), box.width), box.y + Math.min(Math.max(y, 0), box.height));
       },
       async post(url, body) {
-        return (await page.evaluate(`(${POST_SCRIPT})(${JSON.stringify(url)}, ${JSON.stringify(JSON.stringify(body))})`)) as { status: number; text: string };
+        const res = (await page.evaluate(`(${POST_SCRIPT})(${JSON.stringify(url)}, ${JSON.stringify(JSON.stringify(body))})`)) as { status: number; text: string };
+        if (url.endsWith("/AuthenticateOTP") && res.status === 200) signInAnswer = res.text;
+        return res;
       },
       async cookies() {
         const all = await context.cookies(API_BASE_URL);
         return all.map((c) => ({ name: c.name, value: c.value, ...(c.expires > 0 ? { expires: Math.floor(c.expires) } : {}) }));
+      },
+      async keepOpen() {
+        await keepPageOpen(page, signInAnswer, () => browser.close());
       },
       async close() {
         await browser.close();
@@ -256,4 +286,60 @@ export async function openChromium(): Promise<LoginBrowser> {
     await browser.close().catch(() => undefined);
     throw err instanceof BewellLoginError ? err : new BewellLoginError(`Could not open the beWell sign-in page: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/**
+ * An experiment on how long beWell keeps a sign-in (ICHILOV_KEEP_PAGE_OPEN).
+ * Opens beWell's signed-in page as the site does after a sign-in, then lets
+ * the page run as it would in a person's browser: when its session popup
+ * shows, clicks "stay signed in", the site's only way to extend a session.
+ * Every 2 minutes it makes a data call from the page and logs the answer's
+ * status, so the log shows whether the site itself outlasts the 20 minutes
+ * the server's own calls get. Logs no personal data. Closes the browser after
+ * KEEP_OPEN_MS, or sooner when a new sign-in opens it.
+ */
+async function keepPageOpen(page: import("playwright").Page, answer: string, close: () => Promise<void>): Promise<void> {
+  const log = (message: string) => console.error(`[ichilov-mcp] page kept open: ${message}`);
+  const started = Date.now();
+  const minutes = () => ((Date.now() - started) / 60_000).toFixed(1);
+  try {
+    await page.evaluate(`(${SIGNED_IN_SCRIPT})(${JSON.stringify(answer || "{}")})`);
+    await page.goto(`${SITE_ORIGIN}/bewell/main`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    log(`opened ${new URL(page.url()).pathname}`);
+  } catch (err) {
+    log(`could not open the signed-in page: ${err instanceof Error ? err.message : String(err)}`);
+    await close().catch(() => undefined);
+    return;
+  }
+  const probeUrl = new URL("PrivateArea/GetPatientApointments", API_BASE_URL).href;
+  let lastProbe = 0;
+  const timer = setInterval(() => {
+    void (async () => {
+      if (page.isClosed()) {
+        clearInterval(timer);
+        return;
+      }
+      if (Date.now() - started > KEEP_OPEN_MS) {
+        clearInterval(timer);
+        log(`closing after ${minutes()} min`);
+        await close().catch(() => undefined);
+        return;
+      }
+      try {
+        const stay = page.getByRole("button", { name: STAY_IN });
+        if (await stay.isVisible()) {
+          await stay.click();
+          log(`clicked "stay signed in" at ${minutes()} min`);
+        }
+        if (Date.now() - lastProbe >= 2 * 60_000) {
+          lastProbe = Date.now();
+          const status = await page.evaluate(`(${PROBE_SCRIPT})(${JSON.stringify(probeUrl)})`);
+          log(`data call at ${minutes()} min: HTTP ${String(status)}, page ${new URL(page.url()).pathname}`);
+        }
+      } catch (err) {
+        log(`check failed at ${minutes()} min: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+  }, 15_000);
+  timer.unref();
 }
