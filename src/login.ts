@@ -289,6 +289,13 @@ export async function openChromium(): Promise<LoginBrowser> {
 }
 
 /**
+ * What keepPageOpen saw during the latest sign-in, newest last: times,
+ * statuses and cookie names with their expiry, never values. Shown by
+ * ichilov_session_status, as mcp-proxy does not pass the server's stderr on.
+ */
+export const keptOpenLog: string[] = [];
+
+/**
  * An experiment on how long beWell keeps a sign-in (ICHILOV_KEEP_PAGE_OPEN).
  * Opens beWell's signed-in page as the site does after a sign-in, then lets
  * the page run as it would in a person's browser: when its session popup
@@ -299,7 +306,12 @@ export async function openChromium(): Promise<LoginBrowser> {
  * KEEP_OPEN_MS, or sooner when a new sign-in opens it.
  */
 async function keepPageOpen(page: import("playwright").Page, answer: string, close: () => Promise<void>): Promise<void> {
-  const log = (message: string) => console.error(`[ichilov-mcp] page kept open: ${message}`);
+  keptOpenLog.length = 0;
+  const log = (message: string) => {
+    console.error(`[ichilov-mcp] page kept open: ${message}`);
+    keptOpenLog.push(`${new Date().toISOString()} ${message}`);
+    if (keptOpenLog.length > 60) keptOpenLog.shift();
+  };
   const started = Date.now();
   const minutes = () => ((Date.now() - started) / 60_000).toFixed(1);
   try {
@@ -334,7 +346,10 @@ async function keepPageOpen(page: import("playwright").Page, answer: string, clo
         if (Date.now() - lastProbe >= 2 * 60_000) {
           lastProbe = Date.now();
           const status = await page.evaluate(`(${PROBE_SCRIPT})(${JSON.stringify(probeUrl)})`);
-          log(`data call at ${minutes()} min: HTTP ${String(status)}, page ${new URL(page.url()).pathname}`);
+          const cookies = (await page.context().cookies(API_BASE_URL))
+            .map((c) => `${c.name}${c.expires > 0 ? ` until ${new Date(c.expires * 1000).toISOString()}` : ""}`)
+            .join(", ");
+          log(`data call at ${minutes()} min: HTTP ${String(status)}, page ${new URL(page.url()).pathname}, cookies ${cookies}`);
         }
       } catch (err) {
         log(`check failed at ${minutes()} min: ${err instanceof Error ? err.message : String(err)}`);
