@@ -18,7 +18,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from "node:crypto";
 import { BewellApi, Unauthorized, type Fetch } from "./api.js";
 import { SessionKeeper, SessionRefused, SignInRequired, type KeeperStatus } from "./keeper.js";
-import { BewellLoginError, openChromium, sendCode, verifyCode, type Identity, type LoginBrowser, type OpenBrowser } from "./login.js";
+import { BewellLoginError, keptOpenLog, openChromium, sendCode, verifyCode, type Identity, type LoginBrowser, type OpenBrowser } from "./login.js";
 import { PAGE_HEADERS, SESSION_LIMIT_MS, codePage, idPage, messagePage, PUZZLE_SCRIPT, puzzlePage, statusPage, workingPage } from "./pages.js";
 import { fileStore, type SessionStore } from "./store.js";
 
@@ -30,6 +30,8 @@ const PENDING_TTL_MS = 10 * 60_000;
 const STEP_WAIT_MS = 8_000;
 
 export interface SessionStatus extends KeeperStatus {
+  /** What the kept-open page saw (ICHILOV_KEEP_PAGE_OPEN), newest last. */
+  keptOpenPage?: string[];
   signInUrl?: string;
 }
 
@@ -114,7 +116,7 @@ export class SessionManager {
   }
 
   async status(): Promise<SessionStatus> {
-    const status = this.keeper.status();
+    const status: SessionStatus = { ...this.keeper.status(), ...(keptOpenLog.length ? { keptOpenPage: [...keptOpenLog] } : {}) };
     if (status.state === "signed_in") return status;
     return { ...status, signInUrl: await this.signInUrl() };
   }
